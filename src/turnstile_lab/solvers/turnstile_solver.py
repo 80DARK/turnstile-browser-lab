@@ -69,13 +69,33 @@ class TurnstileSolver(BaseSolver):
     async def _extract_token(self, session: BrowserSession) -> str | None:
         for _ in range(30):
             try:
-                token_element = await session.page.query_selector(
-                    'input[name="cf-turnstile-response"]'
-                )
-                if token_element:
-                    token = await token_element.get_attribute("value")
-                    if token and len(token) > 10:
-                        return token
+                token = await session.page.evaluate("""
+                    () => {
+                        const selectors = [
+                            'input[name="cf-turnstile-response"]',
+                            'textarea[name="cf-turnstile-response"]',
+                            '[name="cf-turnstile-response"]',
+                            'input[name="g-recaptcha-response"]',
+                            'textarea[name="g-recaptcha-response"]'
+                        ];
+
+                        for (const selector of selectors) {
+                            const element = document.querySelector(selector);
+                            if (!element) continue;
+
+                            const value = element.value || element.textContent || "";
+                            if (value.trim().length > 10) return value.trim();
+                        }
+
+                        if (window.turnstileToken && String(window.turnstileToken).length > 10) {
+                            return String(window.turnstileToken);
+                        }
+
+                        return null;
+                    }
+                """)
+                if token:
+                    return token
             except Exception:
                 pass
 

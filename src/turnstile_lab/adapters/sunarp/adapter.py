@@ -20,6 +20,7 @@ class SunarpAdapter(BaseAdapter):
 
         try:
             await self._fill_plate(session, url, placa)
+            await self._wait_for_security_check(session)
             await self._submit(session)
 
             found_selector = await self._wait_for_result(session)
@@ -59,17 +60,57 @@ class SunarpAdapter(BaseAdapter):
 
     async def _fill_plate(self, session: BrowserSession, url: str, placa: str) -> None:
         try:
-            await session.page.fill(SUNARP_PLATE_INPUT, "", timeout=1000)
-            await session.page.fill(SUNARP_PLATE_INPUT, placa, timeout=1000)
+            await self._set_plate_value(session, placa)
         except Exception:
             await session.page.goto(url, wait_until="domcontentloaded", timeout=5000)
-            await session.page.fill(SUNARP_PLATE_INPUT, placa, timeout=1000)
+            await self._set_plate_value(session, placa)
+
+    async def _set_plate_value(self, session: BrowserSession, placa: str) -> None:
+        await session.page.wait_for_selector(SUNARP_PLATE_INPUT, timeout=5000)
+        await session.page.fill(SUNARP_PLATE_INPUT, "", timeout=1000)
+        await session.page.fill(SUNARP_PLATE_INPUT, placa, timeout=1000)
+        await session.page.dispatch_event(SUNARP_PLATE_INPUT, "input")
+        await session.page.dispatch_event(SUNARP_PLATE_INPUT, "change")
+        await session.page.dispatch_event(SUNARP_PLATE_INPUT, "blur")
+
+    async def _wait_for_security_check(self, session: BrowserSession) -> None:
+        try:
+            await session.page.wait_for_function(
+                """
+                () => {
+                    const tokenElement = document.querySelector(
+                        '[name="cf-turnstile-response"], [name="g-recaptcha-response"]'
+                    );
+                    const token = tokenElement?.value || tokenElement?.textContent || "";
+                    const button = document.querySelector(
+                        'button.ant-btn-primary, button[type="submit"], input[type="submit"]'
+                    );
+
+                    return token.trim().length > 10 || (button && !button.disabled);
+                }
+                """,
+                timeout=15000,
+            )
+        except Exception:
+            self.logger.debug(
+                f"Browser {session.index}: security check wait timed out, trying submit anyway"
+            )
 
     async def _submit(self, session: BrowserSession) -> None:
         last_error = None
 
         for selector in SUNARP_SUBMIT_SELECTORS:
             try:
+                await session.page.wait_for_function(
+                    """
+                    (selector) => {
+                        const element = document.querySelector(selector);
+                        return element && !element.disabled;
+                    }
+                    """,
+                    arg=selector,
+                    timeout=5000,
+                )
                 await session.page.click(selector, timeout=2000)
                 return
             except Exception as exc:
