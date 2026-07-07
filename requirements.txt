@@ -1,0 +1,8 @@
+quart
+patchright
+camoufox[geoip]
+requests
+aiosqlite
+rich
+pytest
+pytest-asyncio

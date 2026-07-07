@@ -1,0 +1,46 @@
+@baseUrl = http://127.0.0.1:5072
+
+### Root
+GET {{baseUrl}}/
+
+### Health
+GET {{baseUrl}}/health
+
+### Create Turnstile task
+GET {{baseUrl}}/turnstile?url=https://example.com&sitekey=YOUR_SITEKEY
+
+### Poll task result
+GET {{baseUrl}}/result?id=REPLACE_TASK_ID
+
+### Missing params example
+GET {{baseUrl}}/turnstile
+
+### SUNARP consultar
+GET {{baseUrl}}/consultar?url=https://consultavehicular.sunarp.gob.pe/&sitekey=0x4AAAAAACFzt4Xn8T1Jg9ZS&placa=ABC123
+
+### Expected create response
+# {
+#   "errorId": 0,
+#   "taskId": "uuid-here"
+# }
+
+### Expected processing response
+# {
+#   "status": "processing"
+# }
+
+### Expected ready response
+# {
+#   "errorId": 0,
+#   "status": "ready",
+#   "solution": {
+#     "token": "..."
+#   }
+# }
+
+### Expected error response
+# {
+#   "errorId": 1,
+#   "errorCode": "ERROR_CAPTCHA_UNSOLVABLE",
+#   "errorDescription": "Could not solve the Captcha"
+# }
