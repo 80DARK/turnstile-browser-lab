@@ -21,6 +21,7 @@ class SunarpAdapter(BaseAdapter):
         try:
             await self._fill_plate(session, url, placa)
             await self._wait_for_security_check(session)
+            await self._refresh_plate_events(session)
             await self._submit(session)
 
             found_selector = await self._wait_for_result(session)
@@ -60,16 +61,22 @@ class SunarpAdapter(BaseAdapter):
 
     async def _fill_plate(self, session: BrowserSession, url: str, placa: str) -> None:
         try:
-            await self._set_plate_value(session, placa)
+            await self._type_plate_value(session, placa)
         except Exception:
             await session.page.goto(url, wait_until="domcontentloaded", timeout=5000)
-            await self._set_plate_value(session, placa)
+            await self._type_plate_value(session, placa)
 
-    async def _set_plate_value(self, session: BrowserSession, placa: str) -> None:
+    async def _type_plate_value(self, session: BrowserSession, placa: str) -> None:
         await session.page.wait_for_selector(SUNARP_PLATE_INPUT, timeout=5000)
-        await session.page.fill(SUNARP_PLATE_INPUT, "", timeout=1000)
-        await session.page.fill(SUNARP_PLATE_INPUT, placa, timeout=1000)
+        await session.page.click(SUNARP_PLATE_INPUT, timeout=1000)
+        await session.page.press(SUNARP_PLATE_INPUT, "Control+A")
+        await session.page.press(SUNARP_PLATE_INPUT, "Backspace")
+        await session.page.type(SUNARP_PLATE_INPUT, placa, delay=80)
+        await self._refresh_plate_events(session)
+
+    async def _refresh_plate_events(self, session: BrowserSession) -> None:
         await session.page.dispatch_event(SUNARP_PLATE_INPUT, "input")
+        await session.page.dispatch_event(SUNARP_PLATE_INPUT, "keyup")
         await session.page.dispatch_event(SUNARP_PLATE_INPUT, "change")
         await session.page.dispatch_event(SUNARP_PLATE_INPUT, "blur")
 
@@ -116,8 +123,45 @@ class SunarpAdapter(BaseAdapter):
             except Exception as exc:
                 last_error = exc
 
+        state = await self._get_form_state(session)
+        self.logger.error(f"Browser {session.index}: SUNARP submit blocked: {state}")
+
         if last_error:
             raise last_error
+
+    async def _get_form_state(self, session: BrowserSession) -> dict[str, Any]:
+        try:
+            return await session.page.evaluate(
+                """
+                () => {
+                    const plate = document.querySelector('input#nroPlaca');
+                    const tokenElement = document.querySelector(
+                        '[name="cf-turnstile-response"], [name="g-recaptcha-response"]'
+                    );
+                    const button = document.querySelector(
+                        'button.ant-btn-primary, button[type="submit"], input[type="submit"]'
+                    );
+                    const cfText = Array.from(document.querySelectorAll('iframe, div, span'))
+                        .map((element) => element.innerText || element.getAttribute('title') || '')
+                        .filter(Boolean)
+                        .join(' ')
+                        .slice(0, 300);
+
+                    const token = tokenElement?.value || tokenElement?.textContent || "";
+
+                    return {
+                        plateValue: plate?.value || null,
+                        tokenLength: token.trim().length,
+                        buttonText: button?.innerText || button?.value || null,
+                        buttonDisabled: button ? Boolean(button.disabled) : null,
+                        buttonClass: button?.className || null,
+                        pageText: cfText,
+                    };
+                }
+                """
+            )
+        except Exception as exc:
+            return {"error": str(exc)}
 
     async def _wait_for_result(self, session: BrowserSession) -> str | None:
         for selector in SUNARP_SUCCESS_SELECTORS:
